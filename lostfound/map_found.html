@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Select Location</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; }
+    #map { height: 90vh; width: 100%; }
+    #searchBox {
+      box-sizing: border-box;
+      width: 300px;
+      margin: 10px;
+      padding: 6px 10px;
+      font-size: 14px;
+    }
+    #status {
+      margin: 5px 10px;
+      font-size: 14px;
+      color: #444;
+    }
+    #status.ok { color: green; }
+    #status.err { color: red; }
+  </style>
+</head>
+<body>
+  <input id="searchBox" type="text" placeholder="Search location..." />
+  <div id="status">Click the map or search to select a location.</div>
+  <div id="map"></div>
+
+  <script>
+    let map, marker, geocoder, searchBox;
+    let lastSaved = null;
+
+    function initMap() {
+      const utem = { lat: 2.3139, lng: 102.3198 }; // initial view
+
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: utem,
+        zoom: 17,
+      });
+
+      geocoder = new google.maps.Geocoder();
+
+      const input = document.getElementById("searchBox");
+      searchBox = new google.maps.places.SearchBox(input);
+      map.controls[google.maps.ControlPosition.TOP_LEFT].push(input);
+
+      map.addListener("bounds_changed", () => {
+        searchBox.setBounds(map.getBounds());
+      });
+
+      searchBox.addListener("places_changed", () => {
+        const places = searchBox.getPlaces();
+        if (!places || places.length === 0) return;
+
+        const place = places[0];
+        if (!place.geometry || !place.geometry.location) return;
+
+        const loc = place.geometry.location;
+        map.panTo(loc);
+        map.setZoom(18);
+        placeMarker(loc);
+      });
+
+      map.addListener("click", (e) => {
+        placeMarker(e.latLng);
+      });
+
+      setStatus("Click or search to choose a location.");
+    }
+
+    function placeMarker(location) {
+      if (marker) marker.setMap(null);
+
+      marker = new google.maps.Marker({
+        position: location,
+        map: map,
+      });
+
+      geocoder.geocode({ location }, (results, status) => {
+        if (status === "OK" && results && results[0]) {
+          let address = cleanAddress(results);
+          saveLocation(address);
+        } else {
+          setStatus("❌ Failed to get address.", true);
+        }
+      });
+    }
+
+    // Remove Plus Codes and take the clean place name
+    function cleanAddress(results) {
+      let address = results[0].formatted_address;
+      if (/^[A-Z0-9\+\-]{4,}\s*/.test(address.split(' ')[0])) {
+        for (let i = 1; i < results.length; i++) {
+          if (!/^[A-Z0-9\+\-]{4,}/.test(results[i].formatted_address)) {
+            address = results[i].formatted_address;
+            break;
+          }
+        }
+      }
+      // Take only first line (up to first comma)
+      return address.split(",")[0].trim();
+    }
+
+    function saveLocation(address) {
+      if (lastSaved && lastSaved === address) {
+        setStatus("Already selected: " + address);
+        return;
+      }
+
+      const body = "address=" + encodeURIComponent(address) + "&ts=" + Date.now();
+
+      fetch("save_location_found.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      })
+      .then(r => r.text())
+      .then(txt => {
+        lastSaved = address;
+        setStatus("📍 Saved: " + address, false, true);
+        console.log("Save response:", txt);
+      })
+      .catch(err => {
+        console.error(err);
+        setStatus("❌ Failed to save location.", true);
+      });
+    }
+
+    function setStatus(msg, isErr = false, isOk = false) {
+      const el = document.getElementById("status");
+      el.textContent = msg;
+      el.className = "";
+      if (isErr) el.classList.add("err");
+      if (isOk) el.classList.add("ok");
+    }
+  </script>
+
+  <!-- Google Maps JS API -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyD_8FDIA7TMi1IJCPu_Yv91aQ8tFSuD4ZY&libraries=places&callback=initMap" async defer></script>
+</body>
+</html>
+
